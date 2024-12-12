@@ -1,125 +1,144 @@
-import streamlit as st
-import numpy as np
-import librosa
-import tensorflow as tf
-from tensorflow.keras.models import load_model
-import matplotlib.pyplot as plt
-import gdown
-from io import BytesIO
 import os
+import json
+import streamlit as st
+from kaggle.api.kaggle_api_extended import KaggleApi
+import tensorflow as tf
+import librosa
+import librosa.display
+import numpy as np
+from PIL import Image
+import matplotlib.pyplot as plt
 
-# Set Streamlit page configuration
-st.set_page_config(page_title="Bird Song Classifier", page_icon="🦜", layout="centered")
+# Fungsi untuk mengunduh model dari Kaggle API
+def download_model_from_kaggle(kernel_name, output_files, dest_folder):
+    try:
+        model_files_exist = all([os.path.exists(os.path.join(dest_folder, file)) for file in output_files])
+        if model_files_exist:
+            return False  # Model sudah ada, tidak perlu mengunduh ulang
 
-# Google Drive file URLs for models
-melspec_model_url = 'https://drive.google.com/uc?id=192VGvINbZKOyjhGioyBhjfd2alGe6ATM'
-mfcc_model_url = 'https://drive.google.com/uc?id=1aRBAt6bHVMW3t6QwbLHzCPn3fQuqd71h'
+        kaggle_username = st.secrets["kaggle"]["KAGGLE_USERNAME"]
+        kaggle_key = st.secrets["kaggle"]["KAGGLE_KEY"]
 
-# File path to save the models
-melspec_model_path = 'melspec_model.h5'
-mfcc_model_path = 'mfcc_model.h5'
+        kaggle_json_path = os.path.expanduser("~/.kaggle/kaggle.json")
+        os.makedirs(os.path.dirname(kaggle_json_path), exist_ok=True)
 
-# Download models from Google Drive if not already downloaded
-def download_model(model_url, model_path):
-    if not os.path.exists(model_path):
-        st.info(f"Downloading model from {model_url}...")
-        gdown.download(model_url, model_path, quiet=False)
-        st.success(f"Model downloaded and saved to {model_path}")
-    else:
-        st.info(f"Model already exists at {model_path}, skipping download.")
+        with open(kaggle_json_path, 'w') as f:
+            json.dump({"username": kaggle_username, "key": kaggle_key}, f)
 
-# Download the models
-download_model(melspec_model_url, melspec_model_path)
-download_model(mfcc_model_url, mfcc_model_path)
+        api = KaggleApi()
+        api.authenticate()
 
-# Load models
-try:
-    melspec_model = load_model(melspec_model_path)  # Load the Mel-spectrogram model
-    mfcc_model = load_model(mfcc_model_path)  # Load the MFCC model
-except Exception as e:
-    st.error(f"Error loading models: {e}")
+        os.makedirs(dest_folder, exist_ok=True)
+        for output_file in output_files:
+            api.kernels_output(kernel_name, path=dest_folder, force=True)
+        return True
+    except Exception as e:
+        st.error(f"Terjadi kesalahan saat mengunduh model: {str(e)}")
+        return None
 
-# Title of the app
-st.title("West Indonesia Birds Audio Classifier 🦜")
+kernel_name = "evanaryaputra28/dl-tb"
+output_files = ["cnn_melspec.h5", "cnn_mfcc.h5"]
+dest_folder = "./models/"
 
-# Introduction
-st.markdown("""**Selamat datang di aplikasi Klasifikasi Suara Burung!** Aplikasi ini akan mengklasifikasikan suara burung berdasarkan file audio yang diunggah. Cukup unggah file audio dalam format MP3 atau WAV, dan model akan memberikan prediksi kelas burung!""")
+download_status = download_model_from_kaggle(kernel_name, output_files, dest_folder)
 
-# File upload section
+melspec_model_save_path = os.path.join(dest_folder, 'cnn_melspec.h5')
+mfcc_model_save_path = os.path.join(dest_folder, 'cnn_mfcc.h5')
+
+if os.path.exists(melspec_model_save_path):
+    try:
+        melspec_model = tf.keras.models.load_model(melspec_model_save_path)
+    except Exception as e:
+        st.error(f"Gagal memuat model Melspec: {str(e)}")
+
+if os.path.exists(mfcc_model_save_path):
+    try:
+        mfcc_model = tf.keras.models.load_model(mfcc_model_save_path)
+    except Exception as e:
+        st.error(f"Gagal memuat model MFCC: {str(e)}")
+
+# Fungsi untuk memproses MFCC menjadi gambar 64x64x3
+def preprocess_mfcc(mfcc):
+    # Convert array to image using Pillow
+    mfcc_image = Image.fromarray(mfcc)
+    mfcc_image = mfcc_image.resize((64, 64))  # Resize gambar menjadi 64x64
+    mfcc_resized = np.array(mfcc_image)
+    mfcc_resized = np.expand_dims(mfcc_resized, axis=-1)  # Tambahkan channel
+    mfcc_resized = np.repeat(mfcc_resized, 3, axis=-1)  # Ubah grayscale menjadi RGB
+    return mfcc_resized
+
+# Fungsi untuk memproses Melspectrogram menjadi gambar 64x64x3
+def preprocess_melspec(melspec):
+    melspec_db = librosa.power_to_db(melspec, ref=np.max)
+    melspec_image = Image.fromarray(melspec_db)
+    melspec_image = melspec_image.resize((64, 64))  # Resize gambar menjadi 64x64
+    melspec_resized = np.array(melspec_image)
+    melspec_resized = np.expand_dims(melspec_resized, axis=-1)  # Tambahkan channel
+    melspec_resized = np.repeat(melspec_resized, 3, axis=-1)  # Ubah grayscale menjadi RGB
+    return melspec_resized
+
+# Fungsi untuk menampilkan spektrum
+def plot_spectrogram(data, sr, title, y_axis, x_axis):
+    plt.figure(figsize=(10, 4))
+    librosa.display.specshow(data, sr=sr, x_axis=x_axis, y_axis=y_axis, cmap='magma')
+    plt.colorbar(format='%+2.0f dB')
+    plt.title(title)
+    plt.tight_layout()
+    st.pyplot(plt)
+    plt.close()
+
+st.title("Deep Learning in Audio: Klasifikasi Suara Burung di Indonesia Bagian Barat 🦜")
+st.markdown("""
+    **Selamat datang di aplikasi klasifikasi suara burung menggunakan Deep Learning!**
+    Unggah file audio dalam format MP3 atau WAV, dan aplikasi akan menghasilkan spektrum
+    MFCC dan Melspectrogram serta prediksi model.
+""")
+
 uploaded_audio = st.file_uploader("Pilih file audio (MP3/WAV) untuk diuji", type=["mp3", "wav"])
 
 if uploaded_audio is not None:
-    # Display file details
     st.audio(uploaded_audio, format="audio/mp3")
-    
-    # Process the audio file
-    audio_bytes = uploaded_audio.read()
-    with BytesIO(audio_bytes) as audio_buffer:
-        # Load audio using librosa
-        y, sr = librosa.load(audio_buffer, sr=None)  # Keep original sample rate
+    temp_file_path = "temp_audio.wav"
+    with open(temp_file_path, "wb") as f:
+        f.write(uploaded_audio.read())
 
-    # Extract Mel-spectrogram and MFCC features
-    st.subheader("Mel-spectrogram dan MFCC Extracted Features")
-
-    # Mel-Spectrogram
-    mel_spectrogram = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=8000)
-    mel_db = librosa.power_to_db(mel_spectrogram, ref=np.max)
-
-    # Resize Mel-spectrogram to a fixed width (e.g., 500)
-    mel_db_resized = librosa.util.fix_length(mel_db, size=500, axis=-1)  # Resize width to 500
-
-    # Plot Mel-spectrogram
-    fig, ax = plt.subplots(figsize=(10, 4))
-    librosa.display.specshow(mel_db_resized, x_axis='time', y_axis='mel', ax=ax)
-    ax.set_title('Mel-spectrogram')
-    st.pyplot(fig)
-
-    # MFCC
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
-    
-    # Plot MFCC
-    fig, ax = plt.subplots(figsize=(10, 4))
-    librosa.display.specshow(mfcc, x_axis='time', ax=ax)
-    ax.set_title('MFCC')
-    st.pyplot(fig)
-
-    # Prepare features for prediction
-    mel_spectrogram = mel_db_resized[..., np.newaxis]  # Add channel dimension
-    mfcc = mfcc.T  # Transpose MFCC to match input shape
-
-    # Normalize features
-    mel_spectrogram = mel_spectrogram / np.max(mel_spectrogram)
-    mfcc = mfcc / np.max(mfcc)
-
-    # Reshape Mel-spectrogram to have 3 channels (required by the model)
-    mel_spectrogram = np.repeat(mel_spectrogram, 3, axis=-1)  # Repeat channels 3 times to match the model input
-
-    # Flatten the mel_spectrogram input to match the expected input shape for the model (9216)
-    mel_spectrogram_flattened = mel_spectrogram.flatten().reshape(1, -1)  # Flatten into a single vector
-
-    # Predict using the models
-    if st.button('Prediksi Kelas Burung'):
+    if st.button("Prediksi Kelas Burung"):
         with st.spinner("Memproses..."):
             try:
-                # Reshape for model input
-                mel_spectrogram_input = mel_spectrogram_flattened  # Use the flattened mel spectrogram
-                mfcc_input = np.expand_dims(mfcc, axis=0)  # Add batch dimension
+                y, sr = librosa.load(temp_file_path, sr=None)
+                mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+                melspec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=64)
 
-                # Predict using the models (Melspec and MFCC models)
-                melspec_pred = melspec_model.predict(mel_spectrogram_input)
-                mfcc_pred = mfcc_model.predict(mfcc_input)
+                st.subheader("Spektrum MFCC")
+                plot_spectrogram(mfcc, sr, "MFCC", y_axis="mel", x_axis="time")
 
-                # Decode predictions
-                melspec_pred_class = np.argmax(melspec_pred, axis=1)[0]
-                mfcc_pred_class = np.argmax(mfcc_pred, axis=1)[0]
+                st.subheader("Spektrum Melspectrogram")
+                melspec_db = librosa.power_to_db(melspec, ref=np.max)
+                plot_spectrogram(melspec_db, sr, "Melspectrogram", y_axis="mel", x_axis="time")
 
-                # Display results
+                mfcc_image = preprocess_mfcc(mfcc)
+                melspec_image = preprocess_melspec(melspec)
+
+                mfcc_image = np.expand_dims(mfcc_image, axis=0)
+                melspec_image = np.expand_dims(melspec_image, axis=0)
+
+                mfcc_result = mfcc_model.predict(mfcc_image)
+                melspec_result = melspec_model.predict(melspec_image)
+
+                mfcc_pred_class = np.argmax(mfcc_result, axis=1)[0]
+                melspec_pred_class = np.argmax(melspec_result, axis=1)[0]
+                mfcc_accuracy = np.max(mfcc_result)
+                melspec_accuracy = np.max(melspec_result)
+
                 st.subheader("Hasil Prediksi:")
-                st.write(f"**Melspec Model Prediksi:** Kelas {melspec_pred_class}")
-                st.write(f"**MFCC Model Prediksi:** Kelas {mfcc_pred_class}")
-            
+                st.write(f"**Model MFCC:** Prediksi kelas {mfcc_pred_class} dengan akurasi {mfcc_accuracy * 100:.2f}%")
+                st.write(f"**Model Melspec:** Prediksi kelas {melspec_pred_class} dengan akurasi {melspec_accuracy * 100:.2f}%")
             except Exception as e:
-                st.error(f"Error during prediction: {e}")
+                st.error(f"Error saat melakukan prediksi: {str(e)}")
 
-# Footer
-st.markdown("""<hr><p style="text-align:center; font-size:12px; color:#555;">Aplikasi ini dibangun menggunakan Streamlit dan TensorFlow. Dataset burung Indonesia diambil dari Kaggle.</p><p style="text-align:center; font-size:12px; color:#555;">Desain oleh <strong>AI Model</strong>.</p>""", unsafe_allow_html=True)
+st.markdown("""
+    <hr>
+    <p style="text-align:center; font-size:14px; color:#888;">
+        Aplikasi Klasifikasi Suara Burung menggunakan Deep Learning
+    </p>
+""", unsafe_allow_html=True)
