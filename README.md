@@ -7,3 +7,6 @@
 - Ditta Winanda Putri
 
 # Arsitektur Model
+
+# Flowchart
+![flowchart] (deeplearning.jpg) 
