@@ -7,3 +7,4 @@
 - Ditta Winanda Putri
 
 # Arsitektur Model
+![arsitektur cnn] (cnn_architec.jpg)
