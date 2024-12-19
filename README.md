@@ -5,3 +5,5 @@
 - Lion Abdi Marga
 - Jihan Putri Yani
 - Ditta Winanda Putri
+
+# Arsitektur Model
