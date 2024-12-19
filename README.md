@@ -7,4 +7,7 @@
 - Ditta Winanda Putri
 
 # Arsitektur Model
-![arsitektur cnn] (cnn_architec.jpg)
+![arsitektur cnn](cnn_architec.jpg)
+
+# Flowchart
+![flowchart](deeplearning.jpg)
